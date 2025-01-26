@@ -3,10 +3,13 @@ package parser
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/unsubble/threadinator/internal/executor"
+	"github.com/unsubble/threadinator/internal/utils"
 )
 
 func ParseArgs(args []string) (*executor.Config, error) {
@@ -38,16 +41,36 @@ func ParseArgs(args []string) (*executor.Config, error) {
 	return config, nil
 }
 
+func sanitizeCommand(command string) string {
+	return strings.Trim(command, "\" '")
+}
+
 func splitCommand(commandStr string) *executor.Command {
-	parts := strings.Split(strings.Trim(commandStr, "\" '"), " ")
-	cmd := parts[0]
-	args := make([]string, 0)
-	if len(parts) > 1 {
-		args = parts[1:]
+	commandStr = sanitizeCommand(commandStr)
+	timesIndex := strings.LastIndex(commandStr, ":")
+
+	times := 1
+
+	if timesIndex >= 0 {
+		parsedTimes, err := strconv.Atoi(commandStr[timesIndex+1:])
+		if err != nil {
+			utils.LogErrorStr(fmt.Sprintf("Invalid execution count in command: %v", err))
+		} else {
+			times = parsedTimes
+		}
+		commandStr = commandStr[:timesIndex]
 	}
+
+	parts := strings.Fields(commandStr)
+	if len(parts) == 0 {
+		utils.LogErrorStr("Empty command detected")
+		return &executor.Command{}
+	}
+
 	return &executor.Command{
-		Command: cmd,
-		Args:    args,
+		Command: parts[0],
+		Args:    parts[1:],
+		Times:   times,
 	}
 }
 
@@ -62,17 +85,18 @@ func parseCommands(commands string) []executor.Command {
 	for i := 0; i < len(commands); i++ {
 		char := commands[i]
 
-		if char == '\'' || char == '"' {
+		switch char {
+		case '\'', '"':
 			if !isQuoted || currentQuote == char {
 				isQuoted = !isQuoted
 				currentQuote = char
 			}
-		}
-
-		if !isQuoted && char == ';' && (i == 0 || commands[i-1] != '\\') {
-			cmd := splitCommand(strings.TrimSpace(commands[start:i]))
-			commandSlice = append(commandSlice, *cmd)
-			start = i + 1
+		case ';':
+			if !isQuoted && (i == 0 || commands[i-1] != '\\') {
+				cmd := splitCommand(strings.TrimSpace(commands[start:i]))
+				commandSlice = append(commandSlice, *cmd)
+				start = i + 1
+			}
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 type Command struct {
 	Command string
 	Args    []string
+	Times   int
 }
 
 type Config struct {
@@ -79,8 +80,11 @@ func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker
 }
 
 func getCommand(id int, commands []Command) *Command {
-	if id < len(commands) {
-		return &commands[id]
+	for i := 0; i <= id; i++ {
+		if i < len(commands) && commands[i].Times > 0 {
+			commands[i].Times--
+			return &commands[i]
+		}
 	}
 	return &Command{}
 }

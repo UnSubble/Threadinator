@@ -23,6 +23,7 @@ func TestParseArgs(t *testing.T) {
 					{
 						Command: "ls",
 						Args:    []string{"-l"},
+						Times:   1,
 					},
 				},
 				ThreadCount: 5,
@@ -34,19 +35,21 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "Multiple commands with semicolon",
-			args: []string{"-e", "ls; pwd"},
+			args: []string{"-c", "7", "-e", "ls:6; pwd"},
 			expectedConfig: &executor.Config{
 				Commands: []executor.Command{
 					{
 						Command: "ls",
 						Args:    []string{},
+						Times:   6,
 					},
 					{
 						Command: "pwd",
 						Args:    []string{},
+						Times:   1,
 					},
 				},
-				ThreadCount: 5,
+				ThreadCount: 7,
 				Timeout:     10 * time.Second,
 				UsePipeline: false,
 				Verbose:     false,
@@ -61,6 +64,7 @@ func TestParseArgs(t *testing.T) {
 					{
 						Command: "test",
 						Args:    []string{},
+						Times:   1,
 					},
 				},
 				ThreadCount: 10,
@@ -110,6 +114,7 @@ func TestParseCommands(t *testing.T) {
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
+					Times:   1,
 				},
 			},
 		},
@@ -120,10 +125,12 @@ func TestParseCommands(t *testing.T) {
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
+					Times:   1,
 				},
 				{
 					Command: "pwd",
 					Args:    []string{},
+					Times:   1,
 				},
 			},
 		},
@@ -134,10 +141,12 @@ func TestParseCommands(t *testing.T) {
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
+					Times:   1,
 				},
 				{
 					Command: "pwd",
 					Args:    []string{},
+					Times:   1,
 				},
 			},
 		},
@@ -161,6 +170,7 @@ func TestSplitCommand(t *testing.T) {
 			expectedCmd: executor.Command{
 				Command: "ls",
 				Args:    []string{"-l"},
+				Times:   1,
 			},
 		},
 		{
@@ -168,6 +178,7 @@ func TestSplitCommand(t *testing.T) {
 			expectedCmd: executor.Command{
 				Command: "echo",
 				Args:    []string{"hello", "world"},
+				Times:   1,
 			},
 		},
 		{
@@ -175,6 +186,7 @@ func TestSplitCommand(t *testing.T) {
 			expectedCmd: executor.Command{
 				Command: "single",
 				Args:    []string{},
+				Times:   1,
 			},
 		},
 	}
