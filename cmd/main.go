@@ -18,7 +18,7 @@ func main() {
 
 	err = executor.Execute(config)
 	if err != nil {
-		fmt.Println("Execution failed:", err)
+		fmt.Println(err)
 		os.Exit(1)
 	}
 }

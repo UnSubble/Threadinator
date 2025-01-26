@@ -28,9 +28,7 @@ type Worker struct {
 	prev      *Worker
 	command   *Command
 	waitGroup *sync.WaitGroup
-	pipeline  bool
-	verbose   bool
-	timeout   time.Duration
+	config    *Config
 }
 
 type PipelineError struct {
@@ -39,31 +37,25 @@ type PipelineError struct {
 }
 
 func (p *PipelineError) Error() string {
-	return fmt.Sprintf("pipeline error in worker %d: %v", p.WorkerID, p.Err)
+	return fmt.Sprintf("Pipeline error in worker %d: %v", p.WorkerID, p.Err)
 }
 
 func Execute(config *Config) error {
 	var wg sync.WaitGroup
-	var prev *Worker
+	var prevWorker *Worker
 	errorChan := make(chan error, config.ThreadCount)
 
 	for i := 0; i < config.ThreadCount; i++ {
 		wg.Add(1)
-		newWorker := newWorker(i, &wg, config)
-		newWorker.prev = prev
-		prev = newWorker
+		worker := newWorker(i, &wg, config, prevWorker)
+		prevWorker = worker
 
 		go func(w *Worker) {
-			defer func() {
-				if r := recover(); r != nil {
-					errorChan <- fmt.Errorf("panic in worker %d: %v", w.id, r)
-				}
-			}()
-
+			defer recoverFromPanic(w, errorChan)
 			if err := w.perform(); err != nil {
 				errorChan <- &PipelineError{WorkerID: w.id, Err: err}
 			}
-		}(newWorker)
+		}(worker)
 	}
 
 	go func() {
@@ -71,16 +63,26 @@ func Execute(config *Config) error {
 		close(errorChan)
 	}()
 
-	var errs []string
-	for err := range errorChan {
-		errs = append(errs, err.Error()+"\n")
-	}
+	return collectErrors(errorChan)
+}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("execution errors: %v", errs)
+func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker {
+	command := getCommand(id, config.Commands)
+	return &Worker{
+		id:        id,
+		result:    make(chan []string, 1),
+		command:   command,
+		waitGroup: wg,
+		config:    config,
+		prev:      prev,
 	}
+}
 
-	return nil
+func getCommand(id int, commands []Command) *Command {
+	if id < len(commands) {
+		return &commands[id]
+	}
+	return &Command{}
 }
 
 func (w *Worker) perform() error {
@@ -89,22 +91,34 @@ func (w *Worker) perform() error {
 		w.waitGroup.Done()
 	}()
 
-	if w.pipeline && w.prev != nil {
-		w.log("Waiting for result from previous worker...")
-		prevResult, ok := <-w.prev.result
-		if !ok || prevResult == nil {
-			return fmt.Errorf("no input from previous worker (Thread-%d)", w.prev.id)
+	if w.config.UsePipeline && w.prev != nil {
+		if err := w.receiveInputFromPreviousWorker(); err != nil {
+			return err
 		}
-		w.command.Args = prevResult
 	}
 
-	w.log(fmt.Sprintf("Executing command: %s %v", w.command, w.command.Args))
+	return w.executeCommand()
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), w.timeout)
+func (w *Worker) receiveInputFromPreviousWorker() error {
+	w.logVerbose("Waiting for result from previous worker...")
+	prevResult, ok := <-w.prev.result
+	if !ok || prevResult == nil {
+		return fmt.Errorf("no input from previous worker (Thread-%d)", w.prev.id)
+	}
+	w.command.Args = prevResult
+	return nil
+}
+
+func (w *Worker) executeCommand() error {
+	w.logVerbose(fmt.Sprintf("Executing command: %s %v", w.command.Command, w.command.Args))
+
+	ctx, cancel := context.WithTimeout(context.Background(), w.config.Timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, w.command.Command, w.command.Args...)
 	output, err := cmd.CombinedOutput()
+
 	if err != nil {
 		return fmt.Errorf("command execution failed: %v", err)
 	}
@@ -112,35 +126,39 @@ func (w *Worker) perform() error {
 	trimmedOutput := strings.TrimSpace(string(output))
 	w.logOutput(trimmedOutput)
 
-	if w.pipeline {
+	if w.config.UsePipeline {
 		w.result <- []string{trimmedOutput}
 	}
 
 	return nil
 }
 
-func newWorker(id int, wg *sync.WaitGroup, config *Config) *Worker {
-	var command *Command
-	if id < len(config.Commands) {
-		command = &config.Commands[id]
-	}
-	return &Worker{
-		id:        id,
-		result:    make(chan []string, 1),
-		command:   command,
-		waitGroup: wg,
-		pipeline:  config.UsePipeline,
-		verbose:   config.Verbose,
-		timeout:   config.Timeout,
+func recoverFromPanic(w *Worker, errorChan chan error) {
+	if r := recover(); r != nil {
+		errorChan <- fmt.Errorf("panic in worker %d: %v", w.id, r)
 	}
 }
 
-func (w *Worker) log(message string) {
-	if w.verbose {
+func collectErrors(errorChan <-chan error) error {
+	var errBuilder strings.Builder
+	for err := range errorChan {
+		errBuilder.WriteString("[ERROR] ")
+		errBuilder.WriteString(err.Error())
+		errBuilder.WriteRune('\n')
+	}
+
+	if errBuilder.Len() > 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(errBuilder.String()))
+	}
+	return nil
+}
+
+func (w *Worker) logVerbose(message string) {
+	if w.config.Verbose {
 		fmt.Printf("[Thread-%d] %s\n", w.id, message)
 	}
 }
 
-func (w *Worker) logOutput(msg string) {
-	fmt.Printf("[Thread-%d] Output: %s\n", w.id, msg)
+func (w *Worker) logOutput(output string) {
+	fmt.Printf("[Thread-%d] Output: %s\n", w.id, output)
 }
