@@ -53,7 +53,7 @@
 
 Run a command on 4 threads:
 ```bash
-threadinator -c 4 -e "echo hello world"
+threadinator -c 4 -e "echo hello world:4"
 ```
 ## Contributing
 
