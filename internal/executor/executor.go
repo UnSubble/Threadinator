@@ -9,9 +9,13 @@ import (
 	"time"
 )
 
+type Command struct {
+	Command string
+	Args    []string
+}
+
 type Config struct {
-	Command     string
-	Args        []string
+	Commands    []Command
 	ThreadCount int
 	UsePipeline bool
 	Verbose     bool
@@ -22,8 +26,7 @@ type Worker struct {
 	id        int
 	result    chan []string
 	prev      *Worker
-	command   string
-	args      []string
+	command   *Command
 	waitGroup *sync.WaitGroup
 	pipeline  bool
 	verbose   bool
@@ -68,9 +71,9 @@ func Execute(config *Config) error {
 		close(errorChan)
 	}()
 
-	var errs []error
+	var errs []string
 	for err := range errorChan {
-		errs = append(errs, err)
+		errs = append(errs, err.Error()+"\n")
 	}
 
 	if len(errs) > 0 {
@@ -92,15 +95,15 @@ func (w *Worker) perform() error {
 		if !ok || prevResult == nil {
 			return fmt.Errorf("no input from previous worker (Thread-%d)", w.prev.id)
 		}
-		w.args = prevResult
+		w.command.Args = prevResult
 	}
 
-	w.log(fmt.Sprintf("Executing command: %s %v", w.command, w.args))
+	w.log(fmt.Sprintf("Executing command: %s %v", w.command, w.command.Args))
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, w.command, w.args...)
+	cmd := exec.CommandContext(ctx, w.command.Command, w.command.Args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("command execution failed: %v", err)
@@ -117,11 +120,14 @@ func (w *Worker) perform() error {
 }
 
 func newWorker(id int, wg *sync.WaitGroup, config *Config) *Worker {
+	var command *Command
+	if id < len(config.Commands) {
+		command = &config.Commands[id]
+	}
 	return &Worker{
 		id:        id,
 		result:    make(chan []string, 1),
-		command:   config.Command,
-		args:      config.Args,
+		command:   command,
 		waitGroup: wg,
 		pipeline:  config.UsePipeline,
 		verbose:   config.Verbose,
