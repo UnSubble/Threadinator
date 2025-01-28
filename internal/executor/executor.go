@@ -1,8 +1,11 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -25,7 +28,7 @@ type Config struct {
 
 type Worker struct {
 	id        int
-	result    chan []string
+	result    chan io.Reader
 	prev      *Worker
 	command   *Command
 	waitGroup *sync.WaitGroup
@@ -38,7 +41,7 @@ type PipelineError struct {
 }
 
 func (p *PipelineError) Error() string {
-	return fmt.Sprintf("Pipeline error in worker %d: %v", p.WorkerID, p.Err)
+	return fmt.Sprintf("Pipeline error in [Thread-%d]: %v", p.WorkerID, p.Err)
 }
 
 func Execute(config *Config) error {
@@ -50,7 +53,6 @@ func Execute(config *Config) error {
 		wg.Add(1)
 		worker := newWorker(i, &wg, config, prevWorker)
 		prevWorker = worker
-
 		go func(w *Worker) {
 			defer recoverFromPanic(w, errorChan)
 			if err := w.perform(); err != nil {
@@ -69,9 +71,10 @@ func Execute(config *Config) error {
 
 func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker {
 	command := getCommand(id, config.Commands)
+
 	return &Worker{
 		id:        id,
-		result:    make(chan []string, 1),
+		result:    make(chan io.Reader, 1),
 		command:   command,
 		waitGroup: wg,
 		config:    config,
@@ -86,6 +89,7 @@ func getCommand(id int, commands []Command) *Command {
 			return &commands[i]
 		}
 	}
+
 	return &Command{}
 }
 
@@ -95,32 +99,28 @@ func (w *Worker) perform() error {
 		w.waitGroup.Done()
 	}()
 
-	if w.config.UsePipeline && w.prev != nil {
-		if err := w.receiveInputFromPreviousWorker(); err != nil {
-			return err
-		}
-	}
-
 	return w.executeCommand()
-}
-
-func (w *Worker) receiveInputFromPreviousWorker() error {
-	w.logVerbose("Waiting for result from previous worker...")
-	prevResult, ok := <-w.prev.result
-	if !ok || prevResult == nil {
-		return fmt.Errorf("no input from previous worker (Thread-%d)", w.prev.id)
-	}
-	w.command.Args = prevResult
-	return nil
 }
 
 func (w *Worker) executeCommand() error {
 	w.logVerbose(fmt.Sprintf("Executing command: %s %v", w.command.Command, w.command.Args))
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.config.Timeout)
+
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, w.command.Command, w.command.Args...)
+	cmd.Env = os.Environ()
+
+	if w.config.UsePipeline && w.prev != nil {
+		prevOut, ok := <-w.prev.result
+		if ok {
+			cmd.Stdin = prevOut
+		} else {
+			return fmt.Errorf("no valid input from previous worker (Thread-%d)", w.prev.id)
+		}
+	}
+
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -131,7 +131,8 @@ func (w *Worker) executeCommand() error {
 	w.logOutput(trimmedOutput)
 
 	if w.config.UsePipeline {
-		w.result <- []string{trimmedOutput}
+		pipe := bytes.NewReader(output)
+		w.result <- pipe
 	}
 
 	return nil
@@ -145,6 +146,7 @@ func recoverFromPanic(w *Worker, errorChan chan error) {
 
 func collectErrors(errorChan <-chan error) error {
 	var errBuilder strings.Builder
+
 	for err := range errorChan {
 		errBuilder.WriteString("[ERROR] ")
 		errBuilder.WriteString(err.Error())
@@ -154,6 +156,7 @@ func collectErrors(errorChan <-chan error) error {
 	if errBuilder.Len() > 0 {
 		return fmt.Errorf("%s", strings.TrimSpace(errBuilder.String()))
 	}
+
 	return nil
 }
 

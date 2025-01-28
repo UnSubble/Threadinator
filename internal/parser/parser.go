@@ -30,7 +30,7 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		return nil, err
 	}
 
-	commands := strings.Trim(*commandsFlag, "\" '")
+	commands := strings.TrimSpace(*commandsFlag)
 	if commands == "" {
 		return nil, errors.New("at least one command is required")
 	}
