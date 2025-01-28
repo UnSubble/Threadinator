@@ -8,7 +8,7 @@
 - **Pipelining**: Pipe the output of one command to the next.
 - **Verbose Logging**: Enable detailed logs for each thread execution.
 - **Error Handling**: Get descriptive error messages and manage null pointer checks.
-- **Timeout Support**: Configure a timeout for each thread.
+- ~~**Timeout Support**: Configure a timeout for each thread.~~
 - **Output Redirection**: Redirect the output of commands to a log file.
 - **Dynamic Thread Count**: Automatically adjust the number of threads based on available CPU cores.
 - **Resource Limiting**: Set CPU and memory usage limits for commands.
@@ -53,7 +53,7 @@
 
 Run a command on 4 threads:
 ```bash
-threadinator -c 4 -e "echo hello world"
+threadinator -c 4 -e "echo hello world:4"
 ```
 ## Contributing
 
