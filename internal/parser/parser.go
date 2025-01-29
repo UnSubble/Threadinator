@@ -67,6 +67,10 @@ func splitCommand(commandStr string) *executor.Command {
 		return &executor.Command{}
 	}
 
+	for index, arg := range parts[1:] {
+		parts[index+1] = sanitizeCommand(arg)
+	}
+
 	return &executor.Command{
 		Command: parts[0],
 		Args:    parts[1:],

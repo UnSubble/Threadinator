@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -70,7 +69,7 @@ func Execute(config *Config) error {
 }
 
 func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker {
-	command := getCommand(id, config.Commands)
+	command := getNextCommand(id, config.Commands)
 
 	return &Worker{
 		id:        id,
@@ -82,14 +81,13 @@ func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker
 	}
 }
 
-func getCommand(id int, commands []Command) *Command {
+func getNextCommand(id int, commands []Command) *Command {
 	for i := 0; i <= id; i++ {
 		if i < len(commands) && commands[i].Times > 0 {
 			commands[i].Times--
 			return &commands[i]
 		}
 	}
-
 	return &Command{}
 }
 
@@ -106,7 +104,6 @@ func (w *Worker) executeCommand() error {
 	w.logVerbose(fmt.Sprintf("Executing command: %s %v", w.command.Command, w.command.Args))
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.config.Timeout)
-
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, w.command.Command, w.command.Args...)
@@ -121,21 +118,36 @@ func (w *Worker) executeCommand() error {
 		}
 	}
 
-	output, err := cmd.CombinedOutput()
+	reader, err := cmd.StdoutPipe()
 
 	if err != nil {
+		return fmt.Errorf("pipe error: %v", err)
+	}
+
+	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("command execution failed: %v", err)
 	}
 
-	trimmedOutput := strings.TrimSpace(string(output))
-	w.logOutput(trimmedOutput)
-
 	if w.config.UsePipeline {
-		pipe := bytes.NewReader(output)
-		w.result <- pipe
+		w.result <- reader
 	}
 
-	return nil
+	buffer := make([]byte, 1024)
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout exceeded for command %s", w.command.Command)
+		default:
+			c, err := reader.Read(buffer)
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("error reading output: %v", err)
+			}
+			w.logOutput(string(buffer[:c]))
+		}
+	}
 }
 
 func recoverFromPanic(w *Worker, errorChan chan error) {

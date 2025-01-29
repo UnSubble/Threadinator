@@ -35,7 +35,7 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name: "Multiple commands with semicolon",
-			args: []string{"-c", "7", "-e", "ls:6; pwd"},
+			args: []string{"-c", "7", "-e", "ls:6; 'pwd'"},
 			expectedConfig: &executor.Config{
 				Commands: []executor.Command{
 					{
