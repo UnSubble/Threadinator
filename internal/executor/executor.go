@@ -12,13 +12,14 @@ import (
 )
 
 type Command struct {
-	Command string
-	Args    []string
-	Times   int
+	Command    string
+	Args       []string
+	Times      int
+	Dependency *int
 }
 
 type Config struct {
-	Commands    []Command
+	Commands    []*Command
 	ThreadCount int
 	UsePipeline bool
 	Verbose     bool
@@ -45,50 +46,111 @@ func (p *PipelineError) Error() string {
 
 func Execute(config *Config) error {
 	var wg sync.WaitGroup
-	var prevWorker *Worker
-	errorChan := make(chan error, config.ThreadCount)
-
-	for i := 0; i < config.ThreadCount; i++ {
-		wg.Add(1)
-		worker := newWorker(i, &wg, config, prevWorker)
-		prevWorker = worker
-		go func(w *Worker) {
-			defer recoverFromPanic(w, errorChan)
-			if err := w.perform(); err != nil {
-				errorChan <- &PipelineError{WorkerID: w.id, Err: err}
-			}
-		}(worker)
+	executionOrder, err := resolveExecutionOrder(config.Commands)
+	if err != nil {
+		return err
 	}
 
-	go func() {
-		wg.Wait()
-		close(errorChan)
-	}()
+	errorChan := make(chan error, len(config.Commands))
+	poolChan := make(chan *Worker, config.ThreadCount)
+
+	initializeWorkers(config.ThreadCount, poolChan, &wg, config)
+
+	scheduleCommands(config, executionOrder, poolChan, errorChan, &wg)
+
+	go finalizeExecution(&wg, errorChan, poolChan)
 
 	return collectErrors(errorChan)
 }
 
-func newWorker(id int, wg *sync.WaitGroup, config *Config, prev *Worker) *Worker {
-	command := getNextCommand(id, config.Commands)
-
-	return &Worker{
-		id:        id,
-		result:    make(chan io.Reader, 1),
-		command:   command,
-		waitGroup: wg,
-		config:    config,
-		prev:      prev,
+func initializeWorkers(threadCount int, poolChan chan *Worker, wg *sync.WaitGroup, config *Config) {
+	for i := 0; i < threadCount; i++ {
+		poolChan <- newWorker(i, wg, config)
 	}
 }
 
-func getNextCommand(id int, commands []Command) *Command {
-	for i := 0; i <= id; i++ {
-		if i < len(commands) && commands[i].Times > 0 {
-			commands[i].Times--
-			return &commands[i]
+func scheduleCommands(config *Config, executionOrder []int, poolChan chan *Worker, errorChan chan error, wg *sync.WaitGroup) {
+	for _, cmdIdx := range executionOrder {
+		wg.Add(1)
+		go executeWorkerCommand(config.Commands[cmdIdx], poolChan, errorChan)
+	}
+}
+
+func executeWorkerCommand(command *Command, poolChan chan *Worker, errorChan chan error) {
+	w := <-poolChan
+	w.command = command
+	w.result = make(chan io.Reader, 1)
+
+	defer func() {
+		recoverFromPanic(w, errorChan)
+		poolChan <- w
+	}()
+
+	if err := w.perform(); err != nil {
+		errorChan <- &PipelineError{WorkerID: w.id, Err: err}
+	}
+}
+
+func finalizeExecution(wg *sync.WaitGroup, errorChan chan error, poolChan chan *Worker) {
+	wg.Wait()
+	close(errorChan)
+	close(poolChan)
+}
+
+func newWorker(id int, wg *sync.WaitGroup, config *Config) *Worker {
+	return &Worker{
+		id:        id,
+		waitGroup: wg,
+		config:    config,
+	}
+}
+
+func resolveExecutionOrder(commands []*Command) ([]int, error) {
+	graph := make(map[int][]int)
+	inDegree := make(map[int]int)
+
+	for i, cmd := range commands {
+		if cmd.Dependency != nil {
+			depIdx := *cmd.Dependency
+			if depIdx < 0 || depIdx >= len(commands) {
+				return nil, fmt.Errorf("invalid dependency index %d for command %d", depIdx, i)
+			}
+			graph[depIdx] = append(graph[depIdx], i)
+			inDegree[i]++
 		}
 	}
-	return &Command{}
+
+	return topologicalSort(graph, inDegree, len(commands))
+}
+
+func topologicalSort(graph map[int][]int, inDegree map[int]int, totalCommands int) ([]int, error) {
+	var order []int
+	var queue []int
+
+	for i := 0; i < totalCommands; i++ {
+		if inDegree[i] == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		order = append(order, curr)
+
+		for _, neighbor := range graph[curr] {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	if len(order) != totalCommands {
+		return nil, fmt.Errorf("circular dependency detected")
+	}
+
+	return order, nil
 }
 
 func (w *Worker) perform() error {
@@ -119,7 +181,6 @@ func (w *Worker) executeCommand() error {
 	}
 
 	reader, err := cmd.StdoutPipe()
-
 	if err != nil {
 		return fmt.Errorf("pipe error: %v", err)
 	}
@@ -132,6 +193,10 @@ func (w *Worker) executeCommand() error {
 		w.result <- reader
 	}
 
+	return processCommandOutput(ctx, reader, w)
+}
+
+func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) error {
 	buffer := make([]byte, 1024)
 	for {
 		select {

@@ -3,7 +3,6 @@ package parser
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +13,7 @@ import (
 
 func ParseArgs(args []string) (*executor.Config, error) {
 	config := &executor.Config{
-		ThreadCount: 5,
+		ThreadCount: 0,
 		Timeout:     10 * time.Second,
 	}
 
@@ -30,13 +29,23 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		return nil, err
 	}
 
-	commands := strings.TrimSpace(*commandsFlag)
-	if commands == "" {
+	commandsStr := strings.TrimSpace(*commandsFlag)
+	if commandsStr == "" {
 		return nil, errors.New("at least one command is required")
 	}
 
-	config.Commands = parseCommands(commands)
+	commands := parseCommands(commandsStr)
 	config.Timeout = time.Duration(*timeoutFlag) * time.Second
+
+	for _, cmd := range commands {
+		for c := 0; c < cmd.Times; c++ {
+			config.Commands = append(config.Commands, cmd)
+		}
+	}
+
+	if config.ThreadCount <= 0 {
+		config.ThreadCount = len(config.Commands)
+	}
 
 	return config, nil
 }
@@ -47,18 +56,19 @@ func sanitizeCommand(command string) string {
 
 func splitCommand(commandStr string) *executor.Command {
 	commandStr = sanitizeCommand(commandStr)
-	timesIndex := strings.LastIndex(commandStr, ":")
+	extrasIndex := strings.LastIndex(commandStr, ":")
 
+	var dependency *int
 	times := 1
 
-	if timesIndex >= 0 {
-		parsedTimes, err := strconv.Atoi(commandStr[timesIndex+1:])
-		if err != nil {
-			utils.LogErrorStr(fmt.Sprintf("Invalid execution count in command: %v", err))
-		} else {
-			times = parsedTimes
+	if extrasIndex >= 0 {
+		extras := commandStr[extrasIndex+1:]
+		d, t := parseExtras(extras)
+		if t != nil && *t > 0 {
+			times = *t
 		}
-		commandStr = commandStr[:timesIndex]
+		dependency = d
+		commandStr = commandStr[:extrasIndex]
 	}
 
 	parts := strings.Fields(commandStr)
@@ -72,15 +82,36 @@ func splitCommand(commandStr string) *executor.Command {
 	}
 
 	return &executor.Command{
-		Command: parts[0],
-		Args:    parts[1:],
-		Times:   times,
+		Command:    parts[0],
+		Args:       parts[1:],
+		Times:      times,
+		Dependency: dependency,
 	}
 }
 
-func parseCommands(commands string) []executor.Command {
+func parseExtras(extras string) (*int, *int) {
+	split := strings.Split(extras, "|")
+	var depends *int
+	var times *int
+
+	if len(split) > 1 {
+		if d, err := strconv.Atoi(strings.TrimSpace(split[0])); err == nil {
+			depends = new(int)
+			*depends = d
+		}
+	}
+
+	if t, err := strconv.Atoi(strings.TrimSpace(split[len(split)-1])); err == nil {
+		times = new(int)
+		*times = t
+	}
+
+	return depends, times
+}
+
+func parseCommands(commands string) []*executor.Command {
 	var (
-		commandSlice []executor.Command
+		commandSlice []*executor.Command
 		currentQuote byte
 		isQuoted     bool
 		start        int
@@ -98,7 +129,7 @@ func parseCommands(commands string) []executor.Command {
 		case ';':
 			if !isQuoted && (i == 0 || commands[i-1] != '\\') {
 				cmd := splitCommand(strings.TrimSpace(commands[start:i]))
-				commandSlice = append(commandSlice, *cmd)
+				commandSlice = append(commandSlice, cmd)
 				start = i + 1
 			}
 		}
@@ -106,7 +137,7 @@ func parseCommands(commands string) []executor.Command {
 
 	if start < len(commands) {
 		cmd := splitCommand(strings.TrimSpace(commands[start:]))
-		commandSlice = append(commandSlice, *cmd)
+		commandSlice = append(commandSlice, cmd)
 	}
 
 	return commandSlice

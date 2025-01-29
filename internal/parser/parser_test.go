@@ -8,6 +8,16 @@ import (
 	"github.com/unsubble/threadinator/internal/executor"
 )
 
+func rearrangeCommandSlice(cfg *executor.Config) {
+	s := make([]*executor.Command, 0)
+	for _, cmd := range cfg.Commands {
+		for i := 0; i < cmd.Times; i++ {
+			s = append(s, cmd)
+		}
+	}
+	cfg.Commands = s
+}
+
 func TestParseArgs(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -19,14 +29,14 @@ func TestParseArgs(t *testing.T) {
 			name: "Valid single command",
 			args: []string{"-e", "ls -l"},
 			expectedConfig: &executor.Config{
-				Commands: []executor.Command{
+				Commands: []*executor.Command{
 					{
 						Command: "ls",
 						Args:    []string{"-l"},
 						Times:   1,
 					},
 				},
-				ThreadCount: 5,
+				ThreadCount: 1,
 				Timeout:     10 * time.Second,
 				UsePipeline: false,
 				Verbose:     false,
@@ -37,7 +47,7 @@ func TestParseArgs(t *testing.T) {
 			name: "Multiple commands with semicolon",
 			args: []string{"-c", "7", "-e", "ls:6; 'pwd'"},
 			expectedConfig: &executor.Config{
-				Commands: []executor.Command{
+				Commands: []*executor.Command{
 					{
 						Command: "ls",
 						Args:    []string{},
@@ -60,7 +70,7 @@ func TestParseArgs(t *testing.T) {
 			name: "Custom thread count and timeout",
 			args: []string{"-e", "test", "-c", "10", "-t", "30"},
 			expectedConfig: &executor.Config{
-				Commands: []executor.Command{
+				Commands: []*executor.Command{
 					{
 						Command: "test",
 						Args:    []string{},
@@ -80,6 +90,13 @@ func TestParseArgs(t *testing.T) {
 			expectedConfig: nil,
 			expectedErr:    true,
 		},
+	}
+
+	for _, test := range testCases {
+		if test.expectedConfig == nil {
+			continue
+		}
+		rearrangeCommandSlice(test.expectedConfig)
 	}
 
 	for _, tc := range testCases {
@@ -105,12 +122,12 @@ func TestParseCommands(t *testing.T) {
 	testCases := []struct {
 		name         string
 		input        string
-		expectedCmds []executor.Command
+		expectedCmds []*executor.Command
 	}{
 		{
 			name:  "Simple single command",
 			input: "ls -l",
-			expectedCmds: []executor.Command{
+			expectedCmds: []*executor.Command{
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
@@ -121,7 +138,7 @@ func TestParseCommands(t *testing.T) {
 		{
 			name:  "Multiple commands with semicolon",
 			input: "ls -l; pwd",
-			expectedCmds: []executor.Command{
+			expectedCmds: []*executor.Command{
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
@@ -137,7 +154,7 @@ func TestParseCommands(t *testing.T) {
 		{
 			name:  "Quoted commands",
 			input: "'ls -l'; \"pwd\"",
-			expectedCmds: []executor.Command{
+			expectedCmds: []*executor.Command{
 				{
 					Command: "ls",
 					Args:    []string{"-l"},
@@ -163,11 +180,11 @@ func TestParseCommands(t *testing.T) {
 func TestSplitCommand(t *testing.T) {
 	testCases := []struct {
 		input       string
-		expectedCmd executor.Command
+		expectedCmd *executor.Command
 	}{
 		{
 			input: "ls -l",
-			expectedCmd: executor.Command{
+			expectedCmd: &executor.Command{
 				Command: "ls",
 				Args:    []string{"-l"},
 				Times:   1,
@@ -175,7 +192,7 @@ func TestSplitCommand(t *testing.T) {
 		},
 		{
 			input: "echo hello world",
-			expectedCmd: executor.Command{
+			expectedCmd: &executor.Command{
 				Command: "echo",
 				Args:    []string{"hello", "world"},
 				Times:   1,
@@ -183,7 +200,7 @@ func TestSplitCommand(t *testing.T) {
 		},
 		{
 			input: "single",
-			expectedCmd: executor.Command{
+			expectedCmd: &executor.Command{
 				Command: "single",
 				Args:    []string{},
 				Times:   1,
