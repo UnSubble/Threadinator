@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -64,8 +65,11 @@ func Execute(config *Config) error {
 }
 
 func initializeWorkers(threadCount int, poolChan chan *Worker, wg *sync.WaitGroup, config *Config) {
+	var prevWorker *Worker = nil
 	for i := 0; i < threadCount; i++ {
-		poolChan <- newWorker(i, wg, config)
+		worker := newWorker(i, wg, prevWorker, config)
+		poolChan <- worker
+		prevWorker = worker
 	}
 }
 
@@ -97,10 +101,11 @@ func finalizeExecution(wg *sync.WaitGroup, errorChan chan error, poolChan chan *
 	close(poolChan)
 }
 
-func newWorker(id int, wg *sync.WaitGroup, config *Config) *Worker {
+func newWorker(id int, wg *sync.WaitGroup, prevWorker *Worker, config *Config) *Worker {
 	return &Worker{
 		id:        id,
 		waitGroup: wg,
+		prev:      prevWorker,
 		config:    config,
 	}
 }
@@ -181,6 +186,7 @@ func (w *Worker) executeCommand() error {
 	}
 
 	reader, err := cmd.StdoutPipe()
+
 	if err != nil {
 		return fmt.Errorf("pipe error: %v", err)
 	}
@@ -189,11 +195,18 @@ func (w *Worker) executeCommand() error {
 		return fmt.Errorf("command execution failed: %v", err)
 	}
 
-	if w.config.UsePipeline {
-		w.result <- reader
+	buffer := make([]byte, 1024)
+	l, err := reader.Read(buffer)
+
+	if err != nil {
+		return fmt.Errorf("buffer error: %v", err)
 	}
 
-	return processCommandOutput(ctx, reader, w)
+	if w.config.UsePipeline {
+		w.result <- bytes.NewBuffer(buffer[0:l])
+	}
+
+	return processCommandOutput(ctx, bytes.NewBuffer(buffer[0:l]), w)
 }
 
 func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) error {
