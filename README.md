@@ -1,64 +1,86 @@
 # Threadinator
 
-**Threadinator** is a command-line tool designed to run CLI commands in parallel using multiple threads. It supports features like pipelining, verbose logging, error handling, and much more.
+## Overview
+Threadinator is a command-line tool designed for executing multiple commands concurrently. It provides features such as pipeline execution, configuration through JSON files, and various command-line options.
 
 ## Features
-
-- **Parallel Execution**: Run multiple instances of a command in parallel with configurable thread count.
-- **Pipelining**: Pipe the output of one command to the next.
-- **Verbose Logging**: Enable detailed logs for each thread execution.
-- **Error Handling**: Get descriptive error messages and manage null pointer checks.
-- **Timeout Support**: Configure a timeout for each thread.
-- **Output Redirection**: Redirect the output of commands to a log file.
-- **Dynamic Thread Count**: Automatically adjust the number of threads based on available CPU cores.
-- **Resource Limiting**: Set CPU and memory usage limits for commands.
-- **Pretty Logs**: Enable colorful and readable logs for better debugging.
-- **Statistics**: View a summary of the execution including successes, errors, and timing.
+- Execute commands concurrently using multiple threads.
+- Support for pipeline execution.
+- JSON-based configuration management.
+- Customizable timeout durations.
+- Verbose mode for detailed output.
+- Command-line options for dynamic configuration.
 
 ## Installation
+Clone the repository and build the project using Go:
 
-### Building from Source
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/unsubble/threadinator.git
-   cd threadinator
-   ```
-
-2. Build the project:
-   ```bash
-   go build -o threadinator .
-   ```
-
+```bash
+$ git clone https://github.com/unsubble/threadinator.git
+$ cd threadinator
+$ go build -o threadinator
+```
 
 ## Usage
 
-### Basic Command Syntax
-   ```bash
-   threadinator -c THREAD_COUNT -e "COMMAND" [OPTIONS]
+### Command Line Options
+```
+Usage: threadinator [options]
+
+Options:
+  -c int        Number of concurrent threads
+  -e string     Semicolon-separated commands to execute
+  -p            Enable pipeline mode
+  -t int        Timeout duration in seconds (default: defined in config.json)
+  -v            Enable verbose output
+  -cfg string   Change default settings (Must be in JSON syntax)
+  -V            Show tool version
+  -h, --help    Show help message
 ```
 
-- `-c THREAD_COUNT`: Number of threads (workers) to run concurrently.
-- `-e COMMAND`: The command to execute.
-- `-a ARGS`: Arguments to pass to the command.
-- `-p`: Enable pipelining between threads.
-- `-v`: Enable verbose logging for detailed output.
-- `-o OUTPUT_FILE`: Redirect the output to a file.
-- `-t TIMEOUT`: Set a timeout (in seconds) for each thread.
+### Example Commands
+Run multiple commands concurrently:
 
-### Examples
-
-#### Basic Usage
-
-Run a command on 4 threads:
 ```bash
-threadinator -c 4 -e "echo hello world:4"
+$ ./threadinator -e "echo Hello; echo World" -c 2 -v
 ```
-## Contributing
 
-If you'd like to contribute to **Threadinator**, feel free to fork the repository, create a branch, and submit a pull request. Contributions are always welcome!
+Change configuration settings dynamically:
+
+```bash
+$ ./threadinator -cfg '{"timeout": 15, "timeunit": "ms"}'
+```
+
+Display version information:
+
+```bash
+$ ./threadinator -V
+```
+
+### Configuration
+The tool uses a `config.json` file to store default settings. The configuration file has the following format:
+
+```json
+{
+  "name": "threadinator",
+  "timeout": 10,
+  "timeunit": "s",
+  "version": "1.0.0",
+  "thread-count": 5,
+  "verbose": false,
+  "pipeline": false
+}
+```
+
+## Contributing
+Contributions are welcome! Please follow these steps:
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Commit your changes with clear and descriptive messages.
+4. Push to your fork and submit a pull request.
 
 ## License
+This project is licensed under the [MIT License](LICENSE).
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Acknowledgments
+Special thanks to all contributors who made this project possible.
+
