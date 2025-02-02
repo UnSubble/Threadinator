@@ -4,9 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/unsubble/threadinator/internal/executor"
 )
+
+var dummyLogger = logrus.New()
 
 func rearrangeCommandSlice(cfg *executor.Config) {
 	s := make([]*executor.Command, 0)
@@ -171,7 +174,7 @@ func TestParseCommands(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmds := parseCommands(tc.input)
+			cmds := parseCommands(tc.input, dummyLogger)
 			assert.Equal(t, tc.expectedCmds, cmds)
 		})
 	}
@@ -210,7 +213,7 @@ func TestSplitCommand(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.input, func(t *testing.T) {
-			cmd := parseCommands(tc.input)
+			cmd := parseCommands(tc.input, dummyLogger)
 			assert.Equal(t, 1, len(cmd))
 			assert.Equal(t, tc.expectedCmd, cmd[0])
 		})

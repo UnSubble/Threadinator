@@ -15,17 +15,14 @@ import (
 )
 
 func changeConfigSettings(toChange string) error {
-	logrus.Info("Entering changeConfigSettings")
 	toChangeMap := make(map[string]any)
 	if err := json.Unmarshal([]byte(toChange), &toChangeMap); err != nil {
-		logrus.Errorf("Error unmarshaling config changes: %v", err)
-		return err
+		return fmt.Errorf("error unmarshaling config changes: %v", err)
 	}
 
 	file, err := os.OpenFile("config.json", os.O_RDWR, 0644)
 	if err != nil {
-		logrus.Errorf("Error opening config file: %v", err)
-		return err
+		return fmt.Errorf("error opening config file: %v", err)
 	}
 	defer file.Close()
 
@@ -33,8 +30,7 @@ func changeConfigSettings(toChange string) error {
 	settingsMap := make(map[string]any)
 
 	if err := decoder.Decode(&settingsMap); err != nil {
-		logrus.Errorf("Error decoding config file: %v", err)
-		return err
+		return fmt.Errorf("error decoding config file: %v", err)
 	}
 
 	for name := range settingsMap {
@@ -49,39 +45,30 @@ func changeConfigSettings(toChange string) error {
 
 	configData, err := json.MarshalIndent(settingsMap, "", "  ")
 	if err != nil {
-		logrus.Errorf("Error marshaling updated config: %v", err)
-		return err
+		return fmt.Errorf("error marshaling updated config: %v", err)
 	}
 
 	_, err = file.Write(configData)
-	if err != nil {
-		logrus.Errorf("Error writing updated config to file: %v", err)
-	}
 	return err
 }
 
 func readConfig() (*executor.Config, error) {
-	logrus.Info("Reading configuration file")
 	file, err := os.Open("config.json")
 	if err != nil {
-		logrus.Errorf("Error opening config file: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("error opening config file: %v", err)
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	config := &executor.Config{}
 	if err := decoder.Decode(config); err != nil {
-		logrus.Errorf("Error decoding config file: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("error decoding config file: %v", err)
 	}
 
-	logrus.Infof("Configuration loaded: %+v", config)
 	return config, nil
 }
 
 func getTimeUnit(unit string) time.Duration {
-	logrus.Infof("Parsing time unit: %s", unit)
 	switch unit {
 	case "h":
 		return time.Hour
@@ -100,7 +87,6 @@ func getTimeUnit(unit string) time.Duration {
 }
 
 func ParseArgs(args []string) (*executor.Config, error) {
-	logrus.Info("Parsing arguments")
 	config, err := readConfig()
 	if err != nil {
 		return nil, err
@@ -152,25 +138,23 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		PadLevelText:              true,
 	})
 
-	logrus.Debugf("Log level set to %s", *logLevel)
+	config.Logger.Debugf("Log level set to %s", *logLevel)
 
 	configSettingsStr := strings.TrimSpace(*configSettings)
 	if configSettingsStr != "" {
 		if err := changeConfigSettings(configSettingsStr); err != nil {
-			logrus.Errorf("Error parsing cfg: %v", err)
 			return nil, fmt.Errorf("error on parsing cfg: %v", err)
 		}
-		logrus.Info("Config successfully changed.")
+		config.Logger.Info("Config successfully changed.")
 		return nil, nil
 	}
 
 	commandsStr := strings.TrimSpace(*commandsFlag)
 	if commandsStr == "" {
-		logrus.Error("At least one command is required")
 		return nil, errors.New("at least one command is required")
 	}
 
-	commands := parseCommands(commandsStr)
+	commands := parseCommands(commandsStr, config.Logger)
 	config.Timeout = time.Duration(*timeoutFlag) * getTimeUnit(config.TimeUnit)
 
 	for _, cmd := range commands {
@@ -183,14 +167,12 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		config.ThreadCount = len(config.Commands)
 	}
 
-	logrus.Infof("Configuration after argument parsing: %+v", config)
 	return config, nil
 }
 
 func containsHelpFlag(args []string) bool {
 	for _, arg := range args {
 		if arg == "-h" || arg == "--help" {
-			logrus.Debug("Help flag detected")
 			return true
 		}
 	}
@@ -198,12 +180,11 @@ func containsHelpFlag(args []string) bool {
 }
 
 func sanitizeCommand(command string) string {
-	logrus.Debugf("Sanitizing command: %s", command)
 	return strings.Trim(command, "\" '")
 }
 
-func splitCommand(commandStr string) *executor.Command {
-	logrus.Infof("Splitting command: %s", commandStr)
+func splitCommand(commandStr string, logger *logrus.Logger) *executor.Command {
+	logger.Infof("Splitting command: %s", commandStr)
 	commandStr = sanitizeCommand(commandStr)
 	extrasIndex := strings.LastIndex(commandStr, ":")
 
@@ -222,7 +203,7 @@ func splitCommand(commandStr string) *executor.Command {
 
 	parts := strings.Fields(commandStr)
 	if len(parts) == 0 {
-		logrus.Warn("Empty command detected")
+		logger.Warn("Empty command detected")
 		return &executor.Command{}
 	}
 
@@ -258,8 +239,8 @@ func parseExtras(extras string) (*int, *int) {
 	return depends, times
 }
 
-func parseCommands(commands string) []*executor.Command {
-	logrus.Infof("Parsing commands: %s", commands)
+func parseCommands(commands string, logger *logrus.Logger) []*executor.Command {
+	logger.Infof("Parsing commands: %s", commands)
 	var (
 		commandSlice []*executor.Command
 		currentQuote byte
@@ -278,7 +259,7 @@ func parseCommands(commands string) []*executor.Command {
 			}
 		case ';':
 			if !isQuoted && (i == 0 || commands[i-1] != '\\') {
-				cmd := splitCommand(strings.TrimSpace(commands[start:i]))
+				cmd := splitCommand(strings.TrimSpace(commands[start:i]), logger)
 				commandSlice = append(commandSlice, cmd)
 				start = i + 1
 			}
@@ -286,10 +267,10 @@ func parseCommands(commands string) []*executor.Command {
 	}
 
 	if start < len(commands) {
-		cmd := splitCommand(strings.TrimSpace(commands[start:]))
+		cmd := splitCommand(strings.TrimSpace(commands[start:]), logger)
 		commandSlice = append(commandSlice, cmd)
 	}
 
-	logrus.Infof("Parsed commands: %+v", commandSlice)
+	logger.Infof("Parsed commands: %+v", commandSlice)
 	return commandSlice
 }
