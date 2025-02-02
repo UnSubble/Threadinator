@@ -97,8 +97,8 @@ func ParseArgs(args []string) (*executor.Config, error) {
 
 	commandsFlag := fs.String("e", "", "Semicolon-separated commands to execute")
 	fs.IntVar(&config.ThreadCount, "c", config.ThreadCount, "Number of concurrent threads")
-	fs.BoolVar(&config.UsePipeline, "p", false, "Enable pipeline mode")
-	fs.BoolVar(&config.Verbose, "v", false, "Enable verbose output")
+	fs.BoolVar(&config.UsePipeline, "p", config.UsePipeline, "Enable pipeline mode")
+	fs.BoolVar(&config.Verbose, "v", config.Verbose, "Enable verbose output")
 	timeoutFlag := fs.Int("t", config.TimeoutInt, "Timeout duration in seconds")
 	configSettings := fs.String("cfg", "", "Change default settings(Must be in JSON syntax)")
 	showVersion := fs.Bool("V", false, "Show tool version")

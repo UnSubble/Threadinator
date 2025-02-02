@@ -2,5 +2,8 @@
   "name": "threadinator",
   "timeout": 10,
   "timeunit": "s",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "thread-count": 5,
+  "verbose": false,
+  "pipeline": false
 }
