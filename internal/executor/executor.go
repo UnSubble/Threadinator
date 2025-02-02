@@ -7,9 +7,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Command struct {
@@ -24,6 +25,7 @@ type Config struct {
 	Version     string `json:"version"`
 	TimeUnit    string `json:"timeunit"`
 	TimeoutInt  int    `json:"timeout"`
+	Logger      *logrus.Logger
 	Commands    []*Command
 	ThreadCount int
 	UsePipeline bool
@@ -46,13 +48,15 @@ type PipelineError struct {
 }
 
 func (p *PipelineError) Error() string {
-	return fmt.Sprintf("Pipeline error in [Thread-%d]: %v", p.WorkerID, p.Err)
+	return fmt.Sprintf("pipeline error in [Thread-%d]: %v", p.WorkerID, p.Err)
 }
 
 func Execute(config *Config) error {
+	config.Logger.Info("Starting execution process")
 	var wg sync.WaitGroup
 	executionOrder, err := resolveExecutionOrder(config.Commands)
 	if err != nil {
+		config.Logger.Errorf("Execution order resolution failed: %v", err)
 		return err
 	}
 
@@ -65,10 +69,11 @@ func Execute(config *Config) error {
 
 	go finalizeExecution(&wg, errorChan, poolChan)
 
-	return collectErrors(errorChan)
+	return collectErrors(config, errorChan)
 }
 
 func initializeWorkers(threadCount int, poolChan chan *Worker, wg *sync.WaitGroup, config *Config) {
+	config.Logger.Infof("Initializing %d workers", threadCount)
 	var prevWorker *Worker = nil
 	for i := 0; i < threadCount; i++ {
 		worker := newWorker(i, wg, prevWorker, config)
@@ -94,6 +99,8 @@ func executeWorkerCommand(command *Command, poolChan chan *Worker, errorChan cha
 		poolChan <- w
 	}()
 
+	w.config.Logger.Infof("[Thread-%d] Executing command: %s %v", w.id, w.command.Command, w.command.Args)
+
 	if err := w.perform(); err != nil {
 		errorChan <- &PipelineError{WorkerID: w.id, Err: err}
 	}
@@ -106,6 +113,7 @@ func finalizeExecution(wg *sync.WaitGroup, errorChan chan error, poolChan chan *
 }
 
 func newWorker(id int, wg *sync.WaitGroup, prevWorker *Worker, config *Config) *Worker {
+	config.Logger.Infof("Creating worker with ID: %d", id)
 	return &Worker{
 		id:        id,
 		waitGroup: wg,
@@ -218,6 +226,7 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 	for {
 		select {
 		case <-ctx.Done():
+			w.config.Logger.Errorf("Timeout exceeded for command: %s", w.command.Command)
 			return fmt.Errorf("timeout exceeded for command %s", w.command.Command)
 		default:
 			c, err := reader.Read(buffer)
@@ -225,6 +234,7 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 				return nil
 			}
 			if err != nil {
+				w.config.Logger.Errorf("Error reading output: %v", err)
 				return fmt.Errorf("error reading output: %v", err)
 			}
 			w.logOutput(string(buffer[:c]))
@@ -234,32 +244,24 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 
 func recoverFromPanic(w *Worker, errorChan chan error) {
 	if r := recover(); r != nil {
-		errorChan <- fmt.Errorf("panic in worker %d: %v", w.id, r)
+		errorChan <- fmt.Errorf("panic in Thread-%d: %v", w.id, r)
+		w.config.Logger.Errorf("Recovered from panic in Thread-%d: %v", w.id, r)
 	}
 }
 
-func collectErrors(errorChan <-chan error) error {
-	var errBuilder strings.Builder
-
+func collectErrors(config *Config, errorChan <-chan error) error {
 	for err := range errorChan {
-		errBuilder.WriteString("[ERROR] ")
-		errBuilder.WriteString(err.Error())
-		errBuilder.WriteRune('\n')
+		config.Logger.Errorf("%v", err)
 	}
-
-	if errBuilder.Len() > 0 {
-		return fmt.Errorf("%s", strings.TrimSpace(errBuilder.String()))
-	}
-
 	return nil
 }
 
 func (w *Worker) logVerbose(message string) {
 	if w.config.Verbose {
-		fmt.Printf("[Thread-%d] %s\n", w.id, message)
+		w.config.Logger.Infof("[Thread-%d] %s", w.id, message)
 	}
 }
 
 func (w *Worker) logOutput(output string) {
-	fmt.Printf("[Thread-%d] Output: %s\n", w.id, output)
+	w.config.Logger.Infof("[Thread-%d] Output: %s", w.id, output)
 }

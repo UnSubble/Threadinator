@@ -15,9 +15,11 @@ func main() {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
+
 	if config == nil {
 		os.Exit(0)
 	}
+
 	err = executor.Execute(config)
 	if err != nil {
 		fmt.Println(err)
