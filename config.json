@@ -1,0 +1,6 @@
+{
+  "name": "threadinator",
+  "timeout": 10,
+  "timeunit": "s",
+  "version": "1.0.0"
+}

@@ -20,6 +20,10 @@ type Command struct {
 }
 
 type Config struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	TimeUnit    string `json:"timeunit"`
+	TimeoutInt  int    `json:"timeout"`
 	Commands    []*Command
 	ThreadCount int
 	UsePipeline bool
