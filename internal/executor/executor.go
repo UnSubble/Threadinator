@@ -22,6 +22,8 @@ type Command struct {
 
 type Config struct {
 	Name        string `json:"name"`
+	ShortDesc   string `json:"short-desc"`
+	LongDesc    string `json:"long-desc"`
 	Version     string `json:"version"`
 	TimeUnit    string `json:"timeunit"`
 	TimeoutInt  int    `json:"timeout"`
@@ -54,7 +56,7 @@ func (p *PipelineError) Error() string {
 func Execute(config *Config) error {
 	config.Logger.Info("Starting execution process")
 	var wg sync.WaitGroup
-	executionOrder, err := resolveExecutionOrder(config.Commands)
+	executionOrder, err := resolveExecutionOrder(config)
 	if err != nil {
 		config.Logger.Errorf("Execution order resolution failed: %v", err)
 		return err
@@ -67,7 +69,7 @@ func Execute(config *Config) error {
 
 	scheduleCommands(config, executionOrder, poolChan, errorChan, &wg)
 
-	go finalizeExecution(&wg, errorChan, poolChan)
+	go finalizeExecution(&wg, errorChan, poolChan, config)
 
 	return collectErrors(config, errorChan)
 }
@@ -85,6 +87,7 @@ func initializeWorkers(threadCount int, poolChan chan *Worker, wg *sync.WaitGrou
 func scheduleCommands(config *Config, executionOrder []int, poolChan chan *Worker, errorChan chan error, wg *sync.WaitGroup) {
 	for _, cmdIdx := range executionOrder {
 		wg.Add(1)
+		config.Logger.Debugf("Scheduling command with index %d: %s %v", cmdIdx, config.Commands[cmdIdx].Command, config.Commands[cmdIdx].Args)
 		go executeWorkerCommand(config.Commands[cmdIdx], poolChan, errorChan)
 	}
 }
@@ -106,8 +109,9 @@ func executeWorkerCommand(command *Command, poolChan chan *Worker, errorChan cha
 	}
 }
 
-func finalizeExecution(wg *sync.WaitGroup, errorChan chan error, poolChan chan *Worker) {
+func finalizeExecution(wg *sync.WaitGroup, errorChan chan error, poolChan chan *Worker, config *Config) {
 	wg.Wait()
+	config.Logger.Debug("Execution completed, closing channels.")
 	close(errorChan)
 	close(poolChan)
 }
@@ -122,9 +126,12 @@ func newWorker(id int, wg *sync.WaitGroup, prevWorker *Worker, config *Config) *
 	}
 }
 
-func resolveExecutionOrder(commands []*Command) ([]int, error) {
+func resolveExecutionOrder(config *Config) ([]int, error) {
+	config.Logger.Debug("Resolving execution order based on dependencies.")
 	graph := make(map[int][]int)
 	inDegree := make(map[int]int)
+
+	commands := config.Commands
 
 	for i, cmd := range commands {
 		if cmd.Dependency != nil {
@@ -134,9 +141,11 @@ func resolveExecutionOrder(commands []*Command) ([]int, error) {
 			}
 			graph[depIdx] = append(graph[depIdx], i)
 			inDegree[i]++
+			config.Logger.Debugf("Command %d depends on command %d", i, depIdx)
 		}
 	}
 
+	config.Logger.Debug("Performing topological sort to determine execution order.")
 	return topologicalSort(graph, inDegree, len(commands))
 }
 
@@ -258,10 +267,14 @@ func collectErrors(config *Config, errorChan <-chan error) error {
 
 func (w *Worker) logVerbose(message string) {
 	if w.config.Verbose {
-		w.config.Logger.Infof("[Thread-%d] %s", w.id, message)
+		w.config.Logger.Debugf("[Thread-%d] %s", w.id, message)
 	}
 }
 
 func (w *Worker) logOutput(output string) {
-	w.config.Logger.Infof("[Thread-%d] Output: %s", w.id, output)
+	if w.config.Verbose {
+		w.config.Logger.Debugf("[Thread-%d] Output: %s", w.id, output)
+	} else {
+		fmt.Printf("[Thread-%d] Output: %s", w.id, output)
+	}
 }

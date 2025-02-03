@@ -1,5 +1,7 @@
 {
   "name": "threadinator",
+	"short-desc": "A concurrent command execution engine with scheduling and remote execution",
+  "long-desc": "Threadinator is a powerful tool for concurrent command execution, with scheduling, dependency resolution, and remote SSH execution capabilities.",
   "timeout": 10,
   "timeunit": "s",
   "version": "1.0.0",

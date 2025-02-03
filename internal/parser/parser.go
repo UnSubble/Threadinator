@@ -2,8 +2,6 @@ package parser
 
 import (
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"github.com/unsubble/threadinator/internal/executor"
 )
 
@@ -52,22 +51,6 @@ func changeConfigSettings(toChange string) error {
 	return err
 }
 
-func readConfig() (*executor.Config, error) {
-	file, err := os.Open("config.json")
-	if err != nil {
-		return nil, fmt.Errorf("error opening config file: %v", err)
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	config := &executor.Config{}
-	if err := decoder.Decode(config); err != nil {
-		return nil, fmt.Errorf("error decoding config file: %v", err)
-	}
-
-	return config, nil
-}
-
 func getTimeUnit(unit string) time.Duration {
 	switch unit {
 	case "h":
@@ -86,51 +69,30 @@ func getTimeUnit(unit string) time.Duration {
 	return 0
 }
 
-func ParseArgs(args []string) (*executor.Config, error) {
-	config, err := readConfig()
-	if err != nil {
-		return nil, err
-	}
+func ParseArgs(config *executor.Config, cmd *cobra.Command) error {
+	flags := cmd.Flags()
 
-	fs := flag.NewFlagSet(config.Name, flag.ContinueOnError)
-
-	commandsFlag := fs.String("e", "", "Semicolon-separated commands to execute")
-	fs.IntVar(&config.ThreadCount, "c", config.ThreadCount, "Number of concurrent threads")
-	fs.BoolVar(&config.UsePipeline, "p", config.UsePipeline, "Enable pipeline mode")
-	fs.BoolVar(&config.Verbose, "v", config.Verbose, "Enable verbose output")
-	logLevel := fs.String("log-level", "ERROR", "Set the logging level (INFO, DEBUG, WARN, ERROR)")
-	timeoutFlag := fs.Int("t", config.TimeoutInt, "Timeout duration in seconds")
-	configSettings := fs.String("cfg", "", "Change default settings(Must be in JSON syntax)")
-	showVersion := fs.Bool("V", false, "Show tool version")
-
-	fs.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options]\n", fs.Name())
-		fs.PrintDefaults()
-	}
-
-	if err := fs.Parse(args); err != nil {
-		logrus.Errorf("Error parsing arguments: %v", err)
-		return nil, err
-	}
-	if *showVersion {
+	if version, _ := flags.GetBool("version"); version {
 		fmt.Printf("%s version %s\n", config.Name, config.Version)
-		os.Exit(0)
 	}
 
-	if len(args) == 0 || containsHelpFlag(args) {
-		fs.Usage()
-		os.Exit(0)
-	}
-
-	level, err := logrus.ParseLevel(*logLevel)
+	logLevel, _ := flags.GetString("log-level")
+	level, err := logrus.ParseLevel(logLevel)
 	if err != nil {
-		return nil, fmt.Errorf("unknown log level: %v", err)
+		return fmt.Errorf("unknown log level: %v", err)
 	}
 	if level > logrus.ErrorLevel && level < logrus.DebugLevel {
-		return nil, fmt.Errorf("unsupported log level: %s", *logLevel)
+		return fmt.Errorf("unsupported log level: %s", logLevel)
 	}
+
 	config.Logger = logrus.New()
-	config.Logger.SetLevel(level)
+
+	if verbose, _ := flags.GetBool("v"); verbose {
+		config.Logger.SetLevel(logrus.DebugLevel)
+	} else {
+		config.Logger.SetLevel(level)
+	}
+
 	config.Logger.SetFormatter(&logrus.TextFormatter{
 		ForceColors:               true,
 		EnvironmentOverrideColors: true,
@@ -138,24 +100,22 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		PadLevelText:              true,
 	})
 
-	config.Logger.Debugf("Log level set to %s", *logLevel)
-
-	configSettingsStr := strings.TrimSpace(*configSettings)
+	configSettings, _ := flags.GetString("cfg")
+	configSettingsStr := strings.TrimSpace(configSettings)
 	if configSettingsStr != "" {
 		if err := changeConfigSettings(configSettingsStr); err != nil {
-			return nil, fmt.Errorf("error on parsing cfg: %v", err)
+			return fmt.Errorf("error on parsing cfg: %v", err)
 		}
 		config.Logger.Info("Config successfully changed.")
-		return nil, nil
+		return nil
 	}
 
-	commandsStr := strings.TrimSpace(*commandsFlag)
-	if commandsStr == "" {
-		return nil, errors.New("at least one command is required")
-	}
-
+	commandsStr, _ := flags.GetString("execute")
+	commandsStr = strings.TrimSpace(commandsStr)
 	commands := parseCommands(commandsStr, config.Logger)
-	config.Timeout = time.Duration(*timeoutFlag) * getTimeUnit(config.TimeUnit)
+
+	timeoutFlag, _ := flags.GetInt("timeout")
+	config.Timeout = time.Duration(timeoutFlag) * getTimeUnit(config.TimeUnit)
 
 	for _, cmd := range commands {
 		for c := 0; c < cmd.Times; c++ {
@@ -167,16 +127,7 @@ func ParseArgs(args []string) (*executor.Config, error) {
 		config.ThreadCount = len(config.Commands)
 	}
 
-	return config, nil
-}
-
-func containsHelpFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "-h" || arg == "--help" {
-			return true
-		}
-	}
-	return false
+	return nil
 }
 
 func sanitizeCommand(command string) string {
