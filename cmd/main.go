@@ -8,10 +8,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/unsubble/threadinator/internal/executor"
-	"github.com/unsubble/threadinator/internal/parser"
+	"github.com/unsubble/threadinator/internal/models"
+	"github.com/unsubble/threadinator/internal/parsers"
 )
 
-func readConfig() (*executor.Config, error) {
+func readConfig() (*models.Config, error) {
 	file, err := os.Open("config.json")
 	if err != nil {
 		return nil, fmt.Errorf("error opening config file: %v", err)
@@ -19,7 +20,7 @@ func readConfig() (*executor.Config, error) {
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	config := &executor.Config{}
+	config := &models.Config{}
 	if err := decoder.Decode(config); err != nil {
 		return nil, fmt.Errorf("error decoding config file: %v", err)
 	}
@@ -27,7 +28,7 @@ func readConfig() (*executor.Config, error) {
 	return config, nil
 }
 
-func NewRootCmd(config *executor.Config) *cobra.Command {
+func NewRootCmd(config *models.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   config.Name,
 		Short: config.ShortDesc,
@@ -36,12 +37,13 @@ func NewRootCmd(config *executor.Config) *cobra.Command {
 			if err := cmd.ParseFlags(args); err != nil {
 				return fmt.Errorf("error parsing flags: %v", err)
 			}
-			if err := parser.ParseArgs(config, cmd); err != nil {
+			if err := parsers.ParseArgs(config, cmd); err != nil {
 				config.Logger.Errorf("Error: %v", err)
 				os.Exit(1)
 			}
 			return executor.Execute(config)
 		},
+		SilenceUsage: true,
 	}
 
 	cmd.Flags().StringP("execute", "e", "", "Semicolon-separated commands to execute")
@@ -69,7 +71,6 @@ func main() {
 	rootCmd.SetOutput(os.Stdout)
 
 	if err := rootCmd.Execute(); err != nil {
-		config.Logger.Errorf("Error: %v", err)
 		os.Exit(1)
 	}
 }

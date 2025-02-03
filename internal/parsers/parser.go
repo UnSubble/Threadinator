@@ -1,4 +1,4 @@
-package parser
+package parsers
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/unsubble/threadinator/internal/executor"
+	"github.com/unsubble/threadinator/internal/models"
 )
 
 func changeConfigSettings(toChange string) error {
@@ -51,25 +51,7 @@ func changeConfigSettings(toChange string) error {
 	return err
 }
 
-func getTimeUnit(unit string) time.Duration {
-	switch unit {
-	case "h":
-		return time.Hour
-	case "m":
-		return time.Minute
-	case "s":
-		return time.Second
-	case "ms":
-		return time.Millisecond
-	case "micros":
-		return time.Microsecond
-	}
-
-	logrus.Fatal("Unknown time unit format")
-	return 0
-}
-
-func ParseArgs(config *executor.Config, cmd *cobra.Command) error {
+func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	flags := cmd.Flags()
 
 	if version, _ := flags.GetBool("version"); version {
@@ -115,7 +97,7 @@ func ParseArgs(config *executor.Config, cmd *cobra.Command) error {
 	commands := parseCommands(commandsStr, config.Logger)
 
 	timeoutFlag, _ := flags.GetInt("timeout")
-	config.Timeout = time.Duration(timeoutFlag) * getTimeUnit(config.TimeUnit)
+	config.Timeout = time.Duration(timeoutFlag) * GetTimeUnit(config.TimeUnit)
 
 	for _, cmd := range commands {
 		for c := 0; c < cmd.Times; c++ {
@@ -134,51 +116,62 @@ func sanitizeCommand(command string) string {
 	return strings.Trim(command, "\" '")
 }
 
-func splitCommand(commandStr string, logger *logrus.Logger) *executor.Command {
+func splitCommand(commandStr string, logger *logrus.Logger) *models.Command {
 	logger.Infof("Splitting command: %s", commandStr)
 	commandStr = sanitizeCommand(commandStr)
 	extrasIndex := strings.LastIndex(commandStr, ":")
 
 	var dependency *int
+	var delay *int
 	times := 1
 
 	if extrasIndex >= 0 {
 		extras := commandStr[extrasIndex+1:]
-		d, t := parseExtras(extras)
+		dep, del, t := parseExtras(extras)
 		if t != nil && *t > 0 {
 			times = *t
 		}
-		dependency = d
+		dependency = dep
+		delay = del
 		commandStr = commandStr[:extrasIndex]
 	}
 
 	parts := strings.Fields(commandStr)
 	if len(parts) == 0 {
 		logger.Warn("Empty command detected")
-		return &executor.Command{}
+		return &models.Command{}
 	}
 
 	for index, arg := range parts[1:] {
 		parts[index+1] = sanitizeCommand(arg)
 	}
 
-	return &executor.Command{
+	return &models.Command{
 		Command:    parts[0],
 		Args:       parts[1:],
 		Times:      times,
+		Delay:      delay,
 		Dependency: dependency,
 	}
 }
 
-func parseExtras(extras string) (*int, *int) {
+func parseExtras(extras string) (*int, *int, *int) {
 	split := strings.Split(extras, "|")
 	var depends *int
+	var delay *int
 	var times *int
 
-	if len(split) > 1 {
+	if len(split) > 2 {
 		if d, err := strconv.Atoi(strings.TrimSpace(split[0])); err == nil {
 			depends = new(int)
 			*depends = d
+		}
+	}
+
+	if len(split) > 1 {
+		if d, err := strconv.Atoi(strings.TrimSpace(split[len(split)-2])); err == nil {
+			delay = new(int)
+			*delay = d
 		}
 	}
 
@@ -187,13 +180,13 @@ func parseExtras(extras string) (*int, *int) {
 		*times = t
 	}
 
-	return depends, times
+	return depends, delay, times
 }
 
-func parseCommands(commands string, logger *logrus.Logger) []*executor.Command {
+func parseCommands(commands string, logger *logrus.Logger) []*models.Command {
 	logger.Infof("Parsing commands: %s", commands)
 	var (
-		commandSlice []*executor.Command
+		commandSlice []*models.Command
 		currentQuote byte
 		isQuoted     bool
 		start        int
