@@ -29,7 +29,6 @@ func resolveExecutionOrder(config *models.Config) ([]int, error) {
 	return topologicalSort(graph, inDegree, len(commands))
 }
 
-// topologicalSort performs a topological sort to resolve dependencies.
 func topologicalSort(graph map[int][]int, inDegree map[int]int, totalCommands int) ([]int, error) {
 	var order []int
 	var queue []int
