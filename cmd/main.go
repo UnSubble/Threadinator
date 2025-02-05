@@ -15,14 +15,14 @@ import (
 func readConfig() (*models.Config, error) {
 	file, err := os.Open("config.json")
 	if err != nil {
-		return nil, fmt.Errorf("error opening config file: %v", err)
+		return nil, models.NewConfigParseError(err)
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	config := &models.Config{}
 	if err := decoder.Decode(config); err != nil {
-		return nil, fmt.Errorf("error decoding config file: %v", err)
+		return nil, models.NewConfigDecodeError(err)
 	}
 
 	return config, nil

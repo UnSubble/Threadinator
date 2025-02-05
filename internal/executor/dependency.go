@@ -1,8 +1,6 @@
 package executor
 
 import (
-	"fmt"
-
 	"github.com/unsubble/threadinator/internal/models"
 )
 
@@ -17,7 +15,7 @@ func resolveExecutionOrder(config *models.Config) ([]int, error) {
 		if cmd.Dependency != nil {
 			depIdx := *cmd.Dependency
 			if depIdx < 0 || depIdx >= len(commands) {
-				return nil, fmt.Errorf("invalid dependency index %d for command %d", depIdx, i)
+				return nil, models.NewDependencyError(depIdx, i)
 			}
 			graph[depIdx] = append(graph[depIdx], i)
 			inDegree[i]++
@@ -53,7 +51,7 @@ func topologicalSort(graph map[int][]int, inDegree map[int]int, totalCommands in
 	}
 
 	if len(order) != totalCommands {
-		return nil, fmt.Errorf("circular dependency detected")
+		return nil, models.NewCircularDependencyError()
 	}
 
 	return order, nil

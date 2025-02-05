@@ -49,7 +49,7 @@ func (w *Worker) executeCommand() error {
 
 	if w.command.Delay != nil {
 		if *w.command.Delay >= w.config.TimeoutInt {
-			return fmt.Errorf("timeout exceeded")
+			return models.NewTimeoutError(w.command.Command)
 		}
 		delay := *w.command.Delay
 		timeUnit := w.config.TimeUnit
@@ -58,7 +58,7 @@ func (w *Worker) executeCommand() error {
 			w.config.Logger.Infof("[Thread-%d] before sleeping for %d %s", w.id, delay, timeUnit)
 		case <-ctx.Done():
 			w.config.Logger.Errorf("Timeout exceeded for command: %s", w.command.Command)
-			return fmt.Errorf("timeout exceeded for command %s", w.command.Command)
+			return models.NewTimeoutError(w.command.Command)
 		}
 		w.config.Logger.Infof("[Thread-%d] after sleeping for %d %s", w.id, delay, timeUnit)
 	}
@@ -71,25 +71,25 @@ func (w *Worker) executeCommand() error {
 		if ok {
 			cmd.Stdin = prevOut
 		} else {
-			return fmt.Errorf("no valid input from previous worker (Thread-%d)", w.prev.id)
+			return models.NewPipelineError(w.prev.id)
 		}
 	}
 
 	reader, err := cmd.StdoutPipe()
 
 	if err != nil {
-		return fmt.Errorf("pipe error: %v", err)
+		return models.NewPipeError(err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("command execution failed: %v", err)
+		return models.NewCommandError(w.command.Command, err.Error())
 	}
 
 	buffer := make([]byte, 1024)
 	l, err := reader.Read(buffer)
 
 	if err != nil {
-		return fmt.Errorf("buffer error: %v", err)
+		return models.NewBufferError(err)
 	}
 
 	if w.config.UsePipeline {
@@ -105,7 +105,7 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 		select {
 		case <-ctx.Done():
 			w.config.Logger.Errorf("Timeout exceeded for command: %s", w.command.Command)
-			return fmt.Errorf("timeout exceeded for command %s", w.command.Command)
+			return models.NewTimeoutError(w.command.Command)
 		default:
 			c, err := reader.Read(buffer)
 			if err == io.EOF {
@@ -113,7 +113,7 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 			}
 			if err != nil {
 				w.config.Logger.Errorf("Error reading output: %v", err)
-				return fmt.Errorf("error reading output: %v", err)
+				return models.NewOutputReadError(err)
 			}
 			w.logOutput(string(buffer[:c]))
 		}
@@ -122,7 +122,7 @@ func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) erro
 
 func recoverFromPanic(w *Worker, errorChan chan error) {
 	if r := recover(); r != nil {
-		errorChan <- fmt.Errorf("panic in Thread-%d: %v", w.id, r)
+		errorChan <- models.NewPanicError(w.id, r)
 		w.config.Logger.Errorf("Recovered from panic in Thread-%d: %v", w.id, r)
 	}
 }

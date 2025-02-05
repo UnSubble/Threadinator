@@ -16,12 +16,12 @@ import (
 func changeConfigSettings(toChange string) error {
 	toChangeMap := make(map[string]any)
 	if err := json.Unmarshal([]byte(toChange), &toChangeMap); err != nil {
-		return fmt.Errorf("error unmarshaling config changes: %v", err)
+		return models.NewConfigParseError(err)
 	}
 
 	file, err := os.OpenFile("config.json", os.O_RDWR, 0644)
 	if err != nil {
-		return fmt.Errorf("error opening config file: %v", err)
+		return models.NewFileOpenError("config.json", err)
 	}
 	defer file.Close()
 
@@ -29,7 +29,7 @@ func changeConfigSettings(toChange string) error {
 	settingsMap := make(map[string]any)
 
 	if err := decoder.Decode(&settingsMap); err != nil {
-		return fmt.Errorf("error decoding config file: %v", err)
+		return models.NewConfigDecodeError(err)
 	}
 
 	for name := range settingsMap {
@@ -44,7 +44,7 @@ func changeConfigSettings(toChange string) error {
 
 	configData, err := json.MarshalIndent(settingsMap, "", "  ")
 	if err != nil {
-		return fmt.Errorf("error marshaling updated config: %v", err)
+		return models.NewConfigMarshalError(err)
 	}
 
 	_, err = file.Write(configData)
@@ -61,10 +61,10 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	logLevel, _ := flags.GetString("log-level")
 	level, err := logrus.ParseLevel(logLevel)
 	if err != nil {
-		return fmt.Errorf("unknown log level: %v", err)
+		return models.NewLogLevelError(logLevel, err)
 	}
 	if level > logrus.ErrorLevel && level < logrus.DebugLevel {
-		return fmt.Errorf("unsupported log level: %s", logLevel)
+		return models.NewUnsupportedLogLevelError(logLevel)
 	}
 
 	config.Logger = logrus.New()
@@ -86,7 +86,7 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	configSettingsStr := strings.TrimSpace(configSettings)
 	if configSettingsStr != "" {
 		if err := changeConfigSettings(configSettingsStr); err != nil {
-			return fmt.Errorf("error on parsing cfg: %v", err)
+			return models.NewConfigChangeError(err)
 		}
 		config.Logger.Info("Config successfully changed.")
 		return nil
@@ -110,6 +110,42 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func parseCommands(commands string, logger *logrus.Logger) []*models.Command {
+	logger.Infof("Parsing commands: %s", commands)
+	var (
+		commandSlice []*models.Command
+		currentQuote byte
+		isQuoted     bool
+		start        int
+	)
+
+	for i := 0; i < len(commands); i++ {
+		char := commands[i]
+
+		switch char {
+		case '\'', '"':
+			if !isQuoted || currentQuote == char {
+				isQuoted = !isQuoted
+				currentQuote = char
+			}
+		case ';':
+			if !isQuoted && (i == 0 || commands[i-1] != '\\') {
+				cmd := splitCommand(strings.TrimSpace(commands[start:i]), logger)
+				commandSlice = append(commandSlice, cmd)
+				start = i + 1
+			}
+		}
+	}
+
+	if start < len(commands) {
+		cmd := splitCommand(strings.TrimSpace(commands[start:]), logger)
+		commandSlice = append(commandSlice, cmd)
+	}
+
+	logger.Infof("Parsed commands: %+v", commandSlice)
+	return commandSlice
 }
 
 func sanitizeCommand(command string) string {
@@ -181,40 +217,4 @@ func parseExtras(extras string) (*int, *int, *int) {
 	}
 
 	return depends, delay, times
-}
-
-func parseCommands(commands string, logger *logrus.Logger) []*models.Command {
-	logger.Infof("Parsing commands: %s", commands)
-	var (
-		commandSlice []*models.Command
-		currentQuote byte
-		isQuoted     bool
-		start        int
-	)
-
-	for i := 0; i < len(commands); i++ {
-		char := commands[i]
-
-		switch char {
-		case '\'', '"':
-			if !isQuoted || currentQuote == char {
-				isQuoted = !isQuoted
-				currentQuote = char
-			}
-		case ';':
-			if !isQuoted && (i == 0 || commands[i-1] != '\\') {
-				cmd := splitCommand(strings.TrimSpace(commands[start:i]), logger)
-				commandSlice = append(commandSlice, cmd)
-				start = i + 1
-			}
-		}
-	}
-
-	if start < len(commands) {
-		cmd := splitCommand(strings.TrimSpace(commands[start:]), logger)
-		commandSlice = append(commandSlice, cmd)
-	}
-
-	logger.Infof("Parsed commands: %+v", commandSlice)
-	return commandSlice
 }
