@@ -12,8 +12,8 @@ import (
 	"github.com/unsubble/threadinator/internal/parsers"
 )
 
-func readConfig() (*models.Config, error) {
-	file, err := os.Open("config.json")
+func readConfig(path string) (*models.Config, error) {
+	file, err := os.Open(fmt.Sprintf("%s%c%s", path, os.PathSeparator, "config.json"))
 	if err != nil {
 		return nil, models.NewConfigParseError(err)
 	}
@@ -59,7 +59,9 @@ func NewRootCmd(config *models.Config) *cobra.Command {
 }
 
 func main() {
-	config, err := readConfig()
+	path := os.Getenv("Threadinator")
+
+	config, err := readConfig(path)
 	if err != nil {
 		logrus.Fatalf("Error while reading config file: %v", err)
 		os.Exit(1)
