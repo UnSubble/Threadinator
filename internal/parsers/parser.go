@@ -3,6 +3,7 @@ package parsers
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -192,29 +193,63 @@ func splitCommand(commandStr string, logger *logrus.Logger) *models.Command {
 }
 
 func parseExtras(extras string) (*int, *int, *int) {
-	split := strings.Split(extras, "|")
-	var depends *int
-	var delay *int
-	var times *int
+	parts := strings.Split(extras, "|")
+	var depends, delay, times *int
 
-	if len(split) > 2 {
-		if d, err := strconv.Atoi(strings.TrimSpace(split[0])); err == nil {
-			depends = new(int)
-			*depends = d
+	parseIntPointer := func(s string) *int {
+		if value, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			ptr := new(int)
+			*ptr = value
+			return ptr
 		}
+		return nil
 	}
 
-	if len(split) > 1 {
-		if d, err := strconv.Atoi(strings.TrimSpace(split[len(split)-2])); err == nil {
-			delay = new(int)
-			*delay = d
-		}
+	if len(parts) > 2 {
+		depends = parseIntPointer(parts[0])
 	}
 
-	if t, err := strconv.Atoi(strings.TrimSpace(split[len(split)-1])); err == nil {
-		times = new(int)
-		*times = t
+	if len(parts) > 1 {
+		delayPart := strings.TrimSpace(parts[len(parts)-2])
+		delay = parseRandomOrInt(delayPart)
+	}
+
+	if len(parts) > 0 {
+		times = parseIntPointer(parts[len(parts)-1])
 	}
 
 	return depends, delay, times
+}
+
+func parseRandomOrInt(value string) *int {
+	value = strings.TrimSpace(value)
+	if d, err := strconv.Atoi(value); err == nil {
+		ptr := new(int)
+		*ptr = d
+		return ptr
+	} else if strings.HasPrefix(value, "rand(") && strings.HasSuffix(value, ")") {
+		randomRange := strings.TrimSuffix(strings.TrimPrefix(value, "rand("), ")")
+		bounds := strings.Split(randomRange, ",")
+		return parseRandomRange(bounds)
+	}
+	return nil
+}
+
+func parseRandomRange(bounds []string) *int {
+	if len(bounds) == 1 {
+		if max, err := strconv.Atoi(strings.TrimSpace(bounds[0])); err == nil {
+			ptr := new(int)
+			*ptr = rand.Intn(max)
+			return ptr
+		}
+	} else if len(bounds) == 2 {
+		if min, err1 := strconv.Atoi(strings.TrimSpace(bounds[0])); err1 == nil {
+			if max, err2 := strconv.Atoi(strings.TrimSpace(bounds[1])); err2 == nil {
+				ptr := new(int)
+				*ptr = rand.Intn(max-min) + min
+				return ptr
+			}
+		}
+	}
+	return nil
 }
