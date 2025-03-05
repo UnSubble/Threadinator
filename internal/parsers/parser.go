@@ -102,6 +102,9 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 
 	for _, cmd := range commands {
 		for c := 0; c < cmd.Times; c++ {
+			if cmd.Dependency != nil && *cmd.Dependency < 0 {
+				*cmd.Dependency = len(config.Commands) + *cmd.Dependency
+			}
 			config.Commands = append(config.Commands, cmd)
 		}
 	}

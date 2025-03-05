@@ -48,19 +48,9 @@ func (w *Worker) executeCommand() error {
 	defer cancel()
 
 	if w.command.Delay != nil {
-		if *w.command.Delay >= w.config.TimeoutInt {
-			return models.NewTimeoutError(w.command.Command)
+		if err := w.performDelay(ctx); err != nil {
+			return err
 		}
-		delay := *w.command.Delay
-		timeUnit := w.config.TimeUnit
-		select {
-		case <-time.After(time.Duration(delay) * parsers.GetTimeUnit(timeUnit)):
-			w.config.Logger.Infof("[Thread-%d] before sleeping for %d %s", w.id, delay, timeUnit)
-		case <-ctx.Done():
-			w.config.Logger.Errorf("Timeout exceeded for command: %s", w.command.Command)
-			return models.NewTimeoutError(w.command.Command)
-		}
-		w.config.Logger.Infof("[Thread-%d] after sleeping for %d %s", w.id, delay, timeUnit)
 	}
 
 	cmd := exec.CommandContext(ctx, w.command.Command, w.command.Args...)
@@ -97,6 +87,26 @@ func (w *Worker) executeCommand() error {
 	}
 
 	return processCommandOutput(ctx, bytes.NewBuffer(buffer[0:l]), w)
+}
+
+func (w *Worker) performDelay(ctx context.Context) error {
+	if *w.command.Delay >= w.config.TimeoutInt {
+		return models.NewTimeoutError(w.command.Command)
+	}
+
+	delay := *w.command.Delay
+	timeUnit := w.config.TimeUnit
+
+	select {
+	case <-time.After(time.Duration(delay) * parsers.GetTimeUnit(timeUnit)):
+		w.config.Logger.Infof("[Thread-%d] before sleeping for %d %s", w.id, delay, timeUnit)
+	case <-ctx.Done():
+		w.config.Logger.Errorf("Timeout exceeded for command: %s", w.command.Command)
+		return models.NewTimeoutError(w.command.Command)
+	}
+	w.config.Logger.Infof("[Thread-%d] after sleeping for %d %s", w.id, delay, timeUnit)
+
+	return nil
 }
 
 func processCommandOutput(ctx context.Context, reader io.Reader, w *Worker) error {
