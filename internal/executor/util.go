@@ -8,11 +8,9 @@ import (
 
 func initializeWorkers(threadCount int, poolChan chan *Worker, wg *sync.WaitGroup, config *models.Config) {
 	config.Logger.Infof("Initializing %d workers", threadCount)
-	var prevWorker *Worker = nil
-	for i := 0; i < threadCount; i++ {
-		worker := newWorker(i, wg, prevWorker, config)
+	for i := range threadCount {
+		worker := newWorker(i, wg, config)
 		poolChan <- worker
-		prevWorker = worker
 	}
 }
 

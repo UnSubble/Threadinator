@@ -8,15 +8,19 @@ import (
 )
 
 func scheduleCommands(config *models.Config, executionOrder []int, poolChan chan *Worker, errorChan chan error, wg *sync.WaitGroup) {
+	var prevWorker *Worker = nil
 	for _, cmdIdx := range executionOrder {
 		wg.Add(1)
 		config.Logger.Debugf("Scheduling command with index %d: %s %v", cmdIdx, config.Commands[cmdIdx].Command, config.Commands[cmdIdx].Args)
-		go executeWorkerCommand(config.Commands[cmdIdx], poolChan, errorChan)
+		w := <-poolChan
+		w.prev = prevWorker
+		go executeWorkerCommand(config.Commands[cmdIdx], w, poolChan, errorChan)
+		prevWorker = w
 	}
 }
 
-func executeWorkerCommand(command *models.Command, poolChan chan *Worker, errorChan chan error) {
-	w := <-poolChan
+func executeWorkerCommand(command *models.Command, w *Worker, poolChan chan *Worker, errorChan chan error) {
+
 	w.command = command
 	w.result = make(chan io.Reader, 1)
 

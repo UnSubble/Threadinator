@@ -23,22 +23,20 @@ type Worker struct {
 	config    *models.Config
 }
 
-func newWorker(id int, wg *sync.WaitGroup, prevWorker *Worker, config *models.Config) *Worker {
+func newWorker(id int, wg *sync.WaitGroup, config *models.Config) *Worker {
 	config.Logger.Infof("Creating worker with ID: %d", id)
 	return &Worker{
 		id:        id,
 		waitGroup: wg,
-		prev:      prevWorker,
 		config:    config,
 	}
 }
 
 func (w *Worker) perform() error {
-	defer func() {
-		close(w.result)
-		w.waitGroup.Done()
-	}()
-	return w.executeCommand()
+	defer w.waitGroup.Done()
+	err := w.executeCommand()
+	close(w.result)
+	return err
 }
 
 func (w *Worker) executeCommand() error {
@@ -58,11 +56,10 @@ func (w *Worker) executeCommand() error {
 
 	if w.config.UsePipeline && w.prev != nil {
 		prevOut, ok := <-w.prev.result
-		if ok {
-			cmd.Stdin = prevOut
-		} else {
+		if !ok {
 			return models.NewPipelineError(w.prev.id)
 		}
+		cmd.Stdin = prevOut
 	}
 
 	reader, err := cmd.StdoutPipe()
@@ -144,9 +141,9 @@ func (w *Worker) logVerbose(message string) {
 }
 
 func (w *Worker) logOutput(output string) {
-	if w.config.Verbose {
-		w.config.Logger.Debugf("[Thread-%d] Output: %s", w.id, output)
-	} else {
+	if !w.config.Verbose {
 		fmt.Printf("[Thread-%d] Output: %s", w.id, output)
+	} else {
+		w.config.Logger.Debugf("[Thread-%d] Output: %s", w.id, output)
 	}
 }

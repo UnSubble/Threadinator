@@ -61,16 +61,18 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 
 	logLevel, _ := flags.GetString("log-level")
 	level, err := logrus.ParseLevel(logLevel)
+
 	if err != nil {
 		return models.NewLogLevelError(logLevel, err)
 	}
-	if level > logrus.ErrorLevel && level < logrus.DebugLevel {
+
+	if level < logrus.ErrorLevel || level > logrus.DebugLevel {
 		return models.NewUnsupportedLogLevelError(logLevel)
 	}
 
 	config.Logger = logrus.New()
 
-	if verbose, _ := flags.GetBool("v"); verbose {
+	if config.Verbose {
 		config.Logger.SetLevel(logrus.DebugLevel)
 	} else {
 		config.Logger.SetLevel(level)
