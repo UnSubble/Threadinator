@@ -103,7 +103,7 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	config.Timeout = time.Duration(timeoutFlag) * GetTimeUnit(config.TimeUnit)
 
 	for _, cmd := range commands {
-		for c := 0; c < cmd.Times; c++ {
+		for range cmd.Times {
 			if cmd.Dependency != nil && *cmd.Dependency < 0 {
 				*cmd.Dependency = len(config.Commands) + *cmd.Dependency
 			}

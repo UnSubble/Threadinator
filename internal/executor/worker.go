@@ -16,7 +16,9 @@ import (
 
 type Worker struct {
 	id        int
-	result    chan io.Reader
+	result    io.Reader
+	mu        sync.Mutex
+	cond      *sync.Cond
 	prev      *Worker
 	command   *models.Command
 	waitGroup *sync.WaitGroup
@@ -25,17 +27,23 @@ type Worker struct {
 
 func newWorker(id int, wg *sync.WaitGroup, config *models.Config) *Worker {
 	config.Logger.Infof("Creating worker with ID: %d", id)
-	return &Worker{
+	w := &Worker{
 		id:        id,
 		waitGroup: wg,
 		config:    config,
 	}
+	w.cond = sync.NewCond(&w.mu)
+	return w
 }
 
 func (w *Worker) perform() error {
 	defer w.waitGroup.Done()
 	err := w.executeCommand()
-	close(w.result)
+
+	w.mu.Lock()
+	w.cond.Broadcast()
+	w.mu.Unlock()
+
 	return err
 }
 
@@ -55,9 +63,9 @@ func (w *Worker) executeCommand() error {
 	cmd.Env = os.Environ()
 
 	if w.config.UsePipeline && w.prev != nil {
-		prevOut, ok := <-w.prev.result
-		if !ok {
-			return models.NewPipelineError(w.prev.id)
+		prevOut, err := w.getStdout()
+		if err != nil {
+			return err
 		}
 		cmd.Stdin = prevOut
 	}
@@ -80,7 +88,7 @@ func (w *Worker) executeCommand() error {
 	}
 
 	if w.config.UsePipeline {
-		w.result <- bytes.NewBuffer(buffer[0:l])
+		w.result = bytes.NewBuffer(buffer[0:l])
 	}
 
 	return processCommandOutput(ctx, bytes.NewBuffer(buffer[0:l]), w)
@@ -132,6 +140,26 @@ func recoverFromPanic(w *Worker, errorChan chan error) {
 		errorChan <- models.NewPanicError(w.id, r)
 		w.config.Logger.Errorf("Recovered from panic in Thread-%d: %v", w.id, r)
 	}
+}
+
+func (w *Worker) getStdout() (io.Reader, error) {
+	w.prev.mu.Lock()
+	defer w.prev.mu.Unlock()
+
+	for w.prev.result == nil {
+		w.prev.cond.Wait()
+	}
+
+	var buf bytes.Buffer
+	_, err := io.Copy(&buf, w.prev.result)
+
+	w.prev.result = bytes.NewBuffer(buf.Bytes())
+
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.NewReader(buf.Bytes()), nil
 }
 
 func (w *Worker) logVerbose(message string) {
