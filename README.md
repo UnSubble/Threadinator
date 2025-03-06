@@ -21,21 +21,15 @@ $ go build -o threadinator
 ```
 
 ## Usage
-
 ### Command Line Options
-```
-Usage: threadinator [options]
-
-Options:
-  -c int        Number of concurrent threads
-  -e string     Semicolon-separated commands to execute
-  -p            Enable pipeline mode
-  -t int        Timeout duration in seconds (default: defined in config.json)
-  -v            Enable verbose output
-  -cfg string   Change default settings (Must be in JSON syntax)
-  -V            Show tool version
-  -h, --help    Show help message
-```
+- `-e, --execute`: Semicolon-separated commands to execute.
+- `-c, --count`: Number of concurrent threads.
+- `-p, --pipeline`: Enable pipeline mode.
+- `-v, --verbose`: Enable verbose output.
+- `--log-level`: Set the logging level (INFO, DEBUG, WARN, ERROR).
+- `-t, --timeout`: Timeout duration in seconds.
+- `--cfg`: Change default settings (must be in JSON syntax).
+- `-V, --version`: Show tool version.
 
 ### Example Commands
 Run multiple commands concurrently:
@@ -54,6 +48,34 @@ Display version information:
 
 ```bash
 $ ./threadinator -V
+```
+
+Run commands with a custom timeout:
+
+```bash
+$ ./threadinator -e "sleep 5; echo Done" -t 4
+```
+
+Enable pipeline mode:
+
+```bash
+$ ./threadinator -e "echo Hello; grep H" -p
+```
+
+Set the logging level to DEBUG:
+
+```bash
+$ ./threadinator -e "echo Debugging" --log-level DEBUG
+```
+
+Work with dependency of commands:
+```bash
+$ threadinator -p -e "xargs echo:1|0|1; echo Test"
+```
+
+Work with commands with random delay:
+```bash
+$ threadinator -p -e "echo Random time:rand(1,5)|1"
 ```
 
 ### Configuration
