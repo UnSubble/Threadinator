@@ -100,6 +100,7 @@ func ParseArgs(config *models.Config, cmd *cobra.Command) error {
 	commands := parseCommands(commandsStr, config.Logger)
 
 	timeoutFlag, _ := flags.GetInt("timeout")
+	config.TimeoutInt = timeoutFlag
 	config.Timeout = time.Duration(timeoutFlag) * GetTimeUnit(config.TimeUnit)
 
 	for _, cmd := range commands {

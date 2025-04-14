@@ -34,6 +34,6 @@ func executeWorkerCommand(command *models.Command, w *Worker, poolChan chan *Wor
 	w.config.Logger.Infof("[Thread-%d] Executing command: %s %v", w.id, w.command.Command, w.command.Args)
 
 	if err := w.perform(); err != nil {
-		errorChan <- models.NewPipelineError(w.id)
+		errorChan <- err
 	}
 }
